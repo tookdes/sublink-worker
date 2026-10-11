@@ -26,3 +26,10 @@ export class InvalidConfigError extends ServiceError {
         this.name = 'InvalidConfigError';
     }
 }
+
+export class ConflictError extends ServiceError {
+    constructor(message = 'Conflict') {
+        super(message, 409);
+        this.name = 'ConflictError';
+    }
+}
