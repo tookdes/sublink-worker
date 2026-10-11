@@ -48,7 +48,7 @@ function getClashUdpValue(proxy, defaultEnabled = true) {
 }
 
 export class ClashConfigBuilder extends BaseConfigBuilder {
-    constructor(inputString, selectedRules, customRules, baseConfig, lang, userAgent, groupByCountry = false, enableClashUI = false, externalController, externalUiDownloadUrl, includeAutoSelect = true) {
+    constructor(inputString, selectedRules, customRules, baseConfig, lang, userAgent, groupByCountry = false, enableClashUI = false, externalController, externalUiDownloadUrl, includeAutoSelect = true, globalGroupNodeSelect = false) {
         if (!baseConfig) {
             baseConfig = CLASH_CONFIG;
         }
@@ -60,6 +60,26 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
         this.enableClashUI = enableClashUI;
         this.externalController = externalController;
         this.externalUiDownloadUrl = externalUiDownloadUrl;
+        this.globalGroupNodeSelect = globalGroupNodeSelect;
+    }
+
+    addGlobalGroup(proxyList) {
+        if (!this.globalGroupNodeSelect || this.hasProxyGroup('GLOBAL')) return;
+
+        const nodeSelectName = this.t('outboundNames.Node Select');
+        const members = [];
+        if (this.hasProxyGroup(nodeSelectName)) members.push(nodeSelectName);
+
+        uniqueNames(proxyList).forEach(name => {
+            if (!members.includes(name)) members.push(name);
+        });
+        if (!members.includes('DIRECT')) members.push('DIRECT');
+        if (!members.includes('REJECT')) members.push('REJECT');
+
+        const group = { type: 'select', name: 'GLOBAL', proxies: members };
+        const providerNames = this.getAllProviderNames();
+        if (providerNames.length > 0) group.use = providerNames;
+        this.config['proxy-groups'].push(group);
     }
 
     /**
@@ -691,6 +711,7 @@ export class ClashConfigBuilder extends BaseConfigBuilder {
             };
         }
 
+        this.addGlobalGroup(this.getProxyList());
         sanitizeClashProxyGroups(this.config);
         this.validateProxyGroups();
 
