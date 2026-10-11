@@ -244,12 +244,14 @@ export function deepCopy(obj) {
 }
 
 export function generateWebPath(length = PATH_LENGTH) {
-	const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-	let result = ''
+	const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+	const bytes = new Uint8Array(length);
+	crypto.getRandomValues(bytes);
+	let result = '';
 	for (let i = 0; i < length; i++) {
-		result += characters.charAt(Math.floor(Math.random() * characters.length))
+		result += characters[bytes[i] % characters.length];
 	}
-	return result
+	return result;
 }
 
 export function parseServerInfo(serverInfo) {
@@ -289,15 +291,22 @@ export function parseUrlParams(url) {
 export function createTlsConfig(params) {
 	let tls = { enabled: false };
 	if (params.security && params.security !== 'none') {
+		const insecure = parseBool(
+			params.allowInsecure ?? params.insecure ?? params.allow_insecure ?? params['skip-cert-verify'],
+			false
+		);
 		tls = {
 			enabled: true,
 			server_name: params.sni || params.host,
-			insecure: !!params?.allowInsecure || !!params?.insecure || !!params?.allow_insecure,
-			// utls: {
-			//   enabled: true,
-			//   fingerprint: "chrome"
-			// },
+			insecure: !!insecure,
 		};
+		const fingerprint = params.fp || params.fingerprint;
+		if (fingerprint) {
+			tls.utls = { enabled: true, fingerprint };
+		}
+		if (params.pinSHA256) {
+			tls.pinSHA256 = normalizePinSHA256(params.pinSHA256);
+		}
 		if (params.security === 'reality') {
 			tls.reality = {
 				enabled: true,
@@ -309,13 +318,44 @@ export function createTlsConfig(params) {
 	return tls;
 }
 
+export function normalizePinSHA256(value) {
+	if (!value) return undefined;
+	const clean = String(value).replace(/[:\\s]/g, '');
+	if (/^[0-9a-fA-F]{64}$/.test(clean)) return clean.toLowerCase();
+	try {
+		const binary = base64ToBinary(clean.replace(/-/g, '+').replace(/_/g, '/'));
+		if (binary.length !== 32) return undefined;
+		let hex = '';
+		for (let i = 0; i < binary.length; i++) hex += binary.charCodeAt(i).toString(16).padStart(2, '0');
+		return hex;
+	} catch {
+		return undefined;
+	}
+}
+
+function normalizeTransportPath(path) {
+	if (path === undefined || path === null || path === '') return undefined;
+	const value = String(path);
+	return value.startsWith('/') ? value : '/' + value;
+}
+
 export function createTransportConfig(params) {
+	const type = params.type;
+	const path = normalizeTransportPath(params.path);
+	if (type === 'xhttp' || type === 'splithttp') {
+		return {
+			type: 'xhttp',
+			path,
+			mode: params.mode || 'auto',
+			...(params.host ? { host: params.host, headers: { host: params.host } } : {})
+		};
+	}
 	return {
-		type: params.type,
-		path: params.path ?? undefined,
-		...(params.host && { 'headers': { 'host': params.host } }),
-		...(params.type === 'grpc' && {
-			service_name: params.serviceName ?? undefined,
+		type,
+		path,
+		...(params.host && { headers: { host: params.host } }),
+		...(type === 'grpc' && {
+			service_name: params.serviceName ?? params.service_name ?? undefined,
 		})
 	};
 }
