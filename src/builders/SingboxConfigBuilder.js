@@ -123,6 +123,14 @@ export class SingboxConfigBuilder extends BaseConfigBuilder {
             });
         }
 
+        if (sanitized.tls?.pinSHA256) {
+            const pairs = sanitized.tls.pinSHA256.toUpperCase().match(/.{2}/g);
+            if (pairs) {
+                sanitized.tls = { ...sanitized.tls, certificate_hash: [pairs.join(':')] };
+            }
+            delete sanitized.tls.pinSHA256;
+        }
+
         // Strip Clash-only / mis-typed fields that conflict with sing-box semantics.
         // `udp` is Clash-only. Top-level `network` in sing-box is a TCP/UDP allowlist
         // (NetworkList in option/types.go); a stray "tcp" silently disables UDP for
