@@ -116,29 +116,96 @@ function detectFormat(content) {
     return 'unknown';
 }
 
+const MAX_SUBSCRIPTION_BYTES = 4 * 1024 * 1024;
+const FETCH_TIMEOUT_MS = 10000;
+const MAX_REDIRECTS = 5;
+
+function isPrivateOrReservedHost(hostname) {
+    const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+    if (!host) return true;
+    if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true;
+    if (host === '::1' || host === '::' || /^f[cd][0-9a-f:]*$/i.test(host) || /^fe[89ab][0-9a-f:]*$/i.test(host)) return true;
+
+    const match = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (!match) return false;
+    const octets = match.slice(1).map(Number);
+    if (octets.some(v => v > 255)) return true;
+    const [a, b] = octets;
+    return a === 0 || a === 10 || a === 127 ||
+        (a === 100 && b >= 64 && b <= 127) ||
+        (a === 169 && b === 254) ||
+        (a === 172 && b >= 16 && b <= 31) ||
+        (a === 192 && b === 0) ||
+        (a === 192 && b === 168) ||
+        (a === 198 && (b === 18 || b === 19)) ||
+        a >= 224;
+}
+
+export function validateSubscriptionUrl(rawUrl) {
+    let parsed;
+    try {
+        parsed = new URL(rawUrl);
+    } catch {
+        throw new Error('Invalid subscription URL');
+    }
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error('Unsupported subscription URL scheme');
+    }
+    if (isPrivateOrReservedHost(parsed.hostname)) {
+        throw new Error('Private or reserved subscription hosts are not allowed');
+    }
+    return parsed;
+}
+
+async function fetchBoundedResponse(rawUrl, headers) {
+    let currentUrl = validateSubscriptionUrl(rawUrl);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+        for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount++) {
+            const response = await fetch(currentUrl.toString(), {
+                method: 'GET',
+                headers,
+                redirect: 'manual',
+                signal: controller.signal
+            });
+
+            if ([301, 302, 303, 307, 308].includes(response.status)) {
+                if (redirectCount === MAX_REDIRECTS) throw new Error('Too many subscription redirects');
+                const location = response.headers.get('location');
+                if (!location) throw new Error('Subscription redirect missing Location header');
+                currentUrl = validateSubscriptionUrl(new URL(location, currentUrl).toString());
+                continue;
+            }
+
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const declaredSize = Number(response.headers.get('content-length') || 0);
+            if (declaredSize > MAX_SUBSCRIPTION_BYTES) throw new Error('Subscription response is too large');
+
+            const buffer = await response.arrayBuffer();
+            if (buffer.byteLength > MAX_SUBSCRIPTION_BYTES) throw new Error('Subscription response is too large');
+            const text = new TextDecoder().decode(buffer);
+            return { text, headers: response.headers, url: currentUrl.toString() };
+        }
+        throw new Error('Unable to fetch subscription');
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+export async function fetchSubscriptionText(url, userAgent) {
+    const headers = new Headers();
+    if (userAgent) headers.set('User-Agent', userAgent);
+    return fetchBoundedResponse(url, headers);
+}
+
 /**
- * Fetch subscription content from a URL and parse it
- * @param {string} url - The subscription URL to fetch
- * @param {string} userAgent - Optional User-Agent header
- * @returns {Promise<object|string[]|null>} - Parsed subscription content
+ * Fetch subscription content from a URL and parse it.
  */
 export async function fetchSubscription(url, userAgent) {
     try {
-        const headers = new Headers();
-        if (userAgent) {
-            headers.set('User-Agent', userAgent);
-        }
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: headers
-        });
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const text = await response.text();
-        const decodedText = decodeContent(text);
-
-        return parseSubscriptionContent(decodedText);
+        const result = await fetchSubscriptionText(url, userAgent);
+        return parseSubscriptionContent(decodeContent(result.text));
     } catch (error) {
         console.error('Error fetching or parsing HTTP(S) content:', error);
         return null;
@@ -146,31 +213,15 @@ export async function fetchSubscription(url, userAgent) {
 }
 
 /**
- * Fetch subscription content and detect its format without parsing
- * @param {string} url - The subscription URL to fetch
- * @param {string} userAgent - Optional User-Agent header
- * @returns {Promise<{content: string, format: 'clash'|'singbox'|'surge'|'unknown', url: string, subscriptionUserinfo?: string}|null>}
+ * Fetch subscription content and detect its format without parsing.
  */
 export async function fetchSubscriptionWithFormat(url, userAgent) {
     try {
-        const headers = new Headers();
-        if (userAgent) {
-            headers.set('User-Agent', userAgent);
-        }
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: headers
-        });
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const text = await response.text();
-        const content = decodeContent(text);
+        const result = await fetchSubscriptionText(url, userAgent);
+        const content = decodeContent(result.text);
         const format = detectFormat(content);
-
-        const subscriptionUserinfo = response.headers.get('subscription-userinfo') || undefined;
-
-        return { content, format, url, subscriptionUserinfo };
+        const subscriptionUserinfo = result.headers.get('subscription-userinfo') || undefined;
+        return { content, format, url: result.url, subscriptionUserinfo };
     } catch (error) {
         console.error('Error fetching subscription:', error);
         return null;
