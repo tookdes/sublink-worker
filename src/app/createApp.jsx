@@ -17,6 +17,7 @@ import { ConfigStorageService } from '../services/configStorageService.js';
 import { ServiceError, MissingDependencyError } from '../services/errors.js';
 import { normalizeRuntime } from '../runtime/runtimeConfig.js';
 import { PREDEFINED_RULE_SETS, SING_BOX_CONFIG, SING_BOX_CONFIG_V1_11, generateSubconverterConfig } from '../config/index.js';
+import { fetchSubscriptionText } from '../parsers/subscription/httpSubscriptionFetcher.js';
 
 const DEFAULT_USER_AGENT = 'curl/7.74.0';
 
@@ -83,6 +84,7 @@ export function createApp(bindings = {}) {
             const enableClashUI = parseBooleanFlag(c.req.query('enable_clash_ui'));
             const externalController = c.req.query('external_controller');
             const externalUiDownloadUrl = c.req.query('external_ui_download_url');
+            const globalGroupNodeSelect = parseBooleanFlag(c.req.query('global_group_node_select'));
             const configId = c.req.query('configId');
             const lang = c.get('lang');
 
@@ -159,7 +161,8 @@ export function createApp(bindings = {}) {
                 enableClashUI,
                 externalController,
                 externalUiDownloadUrl,
-                includeAutoSelect
+                includeAutoSelect,
+                globalGroupNodeSelect
             );
             await builder.build();
             const userinfo = builder.getSubscriptionUserinfo();
@@ -270,21 +273,18 @@ export function createApp(bindings = {}) {
         const finalProxyList = [];
         let subscriptionUserinfo;
         const userAgent = c.req.query('ua') || getRequestHeader(c.req, 'User-Agent') || DEFAULT_USER_AGENT;
-        const headers = { 'User-Agent': userAgent };
-
         for (const proxy of proxylist) {
             const trimmedProxy = proxy.trim();
             if (!trimmedProxy) continue;
 
             if (trimmedProxy.startsWith('http://') || trimmedProxy.startsWith('https://')) {
                 try {
-                    const response = await fetch(trimmedProxy, { method: 'GET', headers });
-                    const fetchedUserinfo = response.headers.get('subscription-userinfo');
+                    const result = await fetchSubscriptionText(trimmedProxy, userAgent);
+                    const fetchedUserinfo = result.headers.get('subscription-userinfo');
                     if (fetchedUserinfo && subscriptionUserinfo === undefined) {
                         subscriptionUserinfo = fetchedUserinfo;
                     }
-                    const text = await response.text();
-                    let processed = tryDecodeSubscriptionLines(text, { decodeUriComponent: true });
+                    let processed = tryDecodeSubscriptionLines(result.text, { decodeUriComponent: true });
                     if (!Array.isArray(processed)) processed = [processed];
                     finalProxyList.push(...processed.filter(item => typeof item === 'string' && item.trim() !== ''));
                 } catch (e) {
@@ -310,9 +310,10 @@ export function createApp(bindings = {}) {
         return c.text(encodeBase64(finalString), 200, responseHeaders);
     });
 
-    app.get('/shorten-v2', async (c) => {
+    app.post('/shorten-v2', async (c) => {
         try {
-            const url = c.req.query('url');
+            const body = await c.req.json();
+            const url = body.url;
             if (!url) {
                 return c.text('Missing URL parameter', 400);
             }
@@ -325,7 +326,7 @@ export function createApp(bindings = {}) {
             const queryString = parsedUrl.search;
 
             const shortLinks = requireShortLinkService(services.shortLinks);
-            const code = await shortLinks.createShortLink(queryString, c.req.query('shortCode'));
+            const code = await shortLinks.createShortLink(queryString, body.shortCode);
             return c.text(code);
         } catch (error) {
             return handleError(c, error, runtime.logger);
@@ -340,7 +341,11 @@ export function createApp(bindings = {}) {
             if (!originalParam) return c.text('Short URL not found', 404);
 
             const url = new URL(c.req.url);
-            return c.redirect(`${url.origin}/${prefix}${originalParam}`);
+            const target = `${url.origin}/${prefix}${originalParam}`;
+            return app.request(target, {
+                method: 'GET',
+                headers: c.req.raw.headers
+            });
         } catch (error) {
             return handleError(c, error, runtime.logger);
         }
