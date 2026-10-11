@@ -182,9 +182,17 @@ async function fetchBoundedResponse(rawUrl, headers) {
             const declaredSize = Number(response.headers.get('content-length') || 0);
             if (declaredSize > MAX_SUBSCRIPTION_BYTES) throw new Error('Subscription response is too large');
 
-            const buffer = await response.arrayBuffer();
-            if (buffer.byteLength > MAX_SUBSCRIPTION_BYTES) throw new Error('Subscription response is too large');
-            const text = new TextDecoder().decode(buffer);
+            let text;
+            if (typeof response.arrayBuffer === 'function') {
+                const buffer = await response.arrayBuffer();
+                if (buffer.byteLength > MAX_SUBSCRIPTION_BYTES) throw new Error('Subscription response is too large');
+                text = new TextDecoder().decode(buffer);
+            } else {
+                text = await response.text();
+                if (new TextEncoder().encode(text).byteLength > MAX_SUBSCRIPTION_BYTES) {
+                    throw new Error('Subscription response is too large');
+                }
+            }
             return { text, headers: response.headers, url: currentUrl.toString() };
         }
         throw new Error('Unable to fetch subscription');
