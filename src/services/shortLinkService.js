@@ -16,11 +16,28 @@ export class ShortLinkService {
 
     async createShortLink(queryString, providedCode) {
         const kv = this.ensureKv();
-        const shortCode = providedCode || generateWebPath();
         const ttl = this.options.shortLinkTtlSeconds;
         const putOptions = ttl ? { expirationTtl: ttl } : undefined;
-        await kv.put(shortCode, queryString, putOptions);
-        return shortCode;
+
+        if (providedCode) {
+            const existing = await kv.get(providedCode);
+            if (existing !== null && existing !== queryString) {
+                const error = new Error('Short code already exists');
+                error.status = 409;
+                throw error;
+            }
+            if (existing === queryString) return providedCode;
+            await kv.put(providedCode, queryString, putOptions);
+            return providedCode;
+        }
+
+        for (let attempt = 0; attempt < 8; attempt++) {
+            const shortCode = generateWebPath();
+            if (await kv.get(shortCode) !== null) continue;
+            await kv.put(shortCode, queryString, putOptions);
+            return shortCode;
+        }
+        throw new Error('Unable to allocate a unique short code');
     }
 
     async resolveShortCode(code) {
