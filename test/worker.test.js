@@ -113,18 +113,44 @@ proxy-groups:
         expect(text).toContain('requires at least one proxy or provider reference');
     });
 
-    it('GET /shorten-v2 returns short code', async () => {
-        const url = 'http://example.com';
+    it('POST /shorten-v2 returns short code', async () => {
+        const url = 'http://example.com/clash?config=test';
         const kvMock = {
             put: vi.fn(async () => {}),
             get: vi.fn(async () => null),
             delete: vi.fn(async () => {})
         };
         const app = createTestApp({ kv: kvMock });
-        const res = await app.request(`http://localhost/shorten-v2?url=${encodeURIComponent(url)}`);
+        const res = await app.request('http://localhost/shorten-v2', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url })
+        });
         expect(res.status).toBe(200);
-        const text = await res.text();
-        expect(text).toBeTruthy();
+        expect(await res.text()).toBeTruthy();
         expect(kvMock.put).toHaveBeenCalled();
+    });
+
+    it('short links render final content without redirecting to a long URL', async () => {
+        const kv = new MemoryKVAdapter();
+        await kv.put('demo', '?config=ss%3A%2F%2FYWVzLTEyOC1nY206dGVzdA%40example.com%3A443%23node&selectedRules=minimal');
+        const app = createTestApp({ kv });
+        const res = await app.request('http://localhost/c/demo');
+        expect(res.status).toBe(200);
+        expect(res.headers.get('location')).toBeNull();
+        expect(res.headers.get('content-type')).toContain('text/yaml');
+    });
+
+    it('rejects overwriting an existing custom short code', async () => {
+        const kv = new MemoryKVAdapter();
+        await kv.put('fixed', '?config=first');
+        const app = createTestApp({ kv });
+        const res = await app.request('http://localhost/shorten-v2', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: 'http://example.com/clash?config=second', shortCode: 'fixed' })
+        });
+        expect(res.status).toBe(409);
+        expect(await kv.get('fixed')).toBe('?config=first');
     });
 });
