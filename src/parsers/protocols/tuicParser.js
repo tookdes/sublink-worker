@@ -8,7 +8,10 @@ export function parseTuic(url) {
         enabled: true,
         server_name: params.sni,
         alpn: parseArray(params.alpn),
-        insecure: parseBool(params['skip-cert-verify'] ?? params.insecure ?? params.allowInsecure, true)
+        insecure: !!parseBool(
+            params['skip-cert-verify'] ?? params.insecure ?? params.allowInsecure ?? params.allow_insecure,
+            false
+        )
     };
 
     return {
@@ -18,7 +21,7 @@ export function parseTuic(url) {
         server_port: port,
         uuid: decodeURIComponent(userinfo).split(':')[0],
         password: decodeURIComponent(userinfo).split(':')[1],
-        congestion_control: params.congestion_control,
+        congestion_control: params.congestion_control || params['congestion-control'] || params.congestionController || params['congestion-controller'],
         tls,
         flow: params.flow ?? undefined,
         udp_relay_mode: params['udp-relay-mode'] || params.udp_relay_mode,
