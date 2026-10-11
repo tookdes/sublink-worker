@@ -1,5 +1,5 @@
 import { generateWebPath } from '../utils.js';
-import { MissingDependencyError } from './errors.js';
+import { MissingDependencyError, ConflictError } from './errors.js';
 
 export class ShortLinkService {
     constructor(kv, options = {}) {
@@ -22,9 +22,7 @@ export class ShortLinkService {
         if (providedCode) {
             const existing = await kv.get(providedCode);
             if (existing !== null && existing !== queryString) {
-                const error = new Error('Short code already exists');
-                error.status = 409;
-                throw error;
+                throw new ConflictError('Short code already exists');
             }
             if (existing === queryString) return providedCode;
             await kv.put(providedCode, queryString, putOptions);
