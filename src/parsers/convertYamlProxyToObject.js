@@ -49,6 +49,16 @@ export function convertYamlProxyToObject(p) {
                     const h2 = p['h2-opts'] || {};
                     return { type: 'h2', path: h2.path, host: h2.host };
                 }
+                if (net === 'xhttp' || net === 'splithttp') {
+                    const x = p['xhttp-opts'] || p['splithttp-opts'] || {};
+                    return {
+                        type: 'xhttp',
+                        path: x.path,
+                        mode: x.mode || 'auto',
+                        host: x.host,
+                        headers: x.headers
+                    };
+                }
                 return undefined;
             })();
             return {
@@ -118,6 +128,7 @@ export function convertYamlProxyToObject(p) {
                 transport,
                 network: transport?.type || 'tcp',
                 flow: p.flow ?? undefined,
+                ...(p.encryption && p.encryption !== 'none' ? { encryption: p.encryption } : {}),
                 udp: typeof p.udp !== 'undefined' ? !!p.udp : undefined,
                 packet_encoding: p['packet-encoding'],
                 alpn: toArray(p.alpn)
@@ -182,7 +193,8 @@ export function convertYamlProxyToObject(p) {
             const tls = {
                 enabled: true,
                 server_name: p.sni,
-                insecure: !!p['skip-cert-verify']
+                insecure: !!p['skip-cert-verify'],
+                ...(p.fingerprint ? { pinSHA256: String(p.fingerprint).toLowerCase() } : {})
             };
             const obfs = {};
             if (p.obfs) {
