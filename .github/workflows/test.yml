@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - upgrade-2026-mainline
   pull_request:
 
 jobs:
