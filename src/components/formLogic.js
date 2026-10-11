@@ -86,6 +86,7 @@ export const formLogicFn = (t) => {
             groupByCountry: false,
             includeAutoSelect: true,
             enableClashUI: false,
+            globalGroupNodeSelect: false,
             externalController: '',
             externalUiDownloadUrl: '',
             configType: 'singbox',
@@ -133,6 +134,7 @@ export const formLogicFn = (t) => {
                 this.groupByCountry = localStorage.getItem('groupByCountry') === 'true';
                 this.includeAutoSelect = localStorage.getItem('includeAutoSelect') !== 'false';
                 this.enableClashUI = localStorage.getItem('enableClashUI') === 'true';
+                this.globalGroupNodeSelect = localStorage.getItem('globalGroupNodeSelect') === 'true';
                 this.externalController = localStorage.getItem('externalController') || '';
                 this.externalUiDownloadUrl = localStorage.getItem('externalUiDownloadUrl') || '';
                 this.customUA = localStorage.getItem('userAgent') || '';
@@ -164,6 +166,7 @@ export const formLogicFn = (t) => {
                 this.$watch('groupByCountry', val => localStorage.setItem('groupByCountry', val));
                 this.$watch('includeAutoSelect', val => localStorage.setItem('includeAutoSelect', val));
                 this.$watch('enableClashUI', val => localStorage.setItem('enableClashUI', val));
+                this.$watch('globalGroupNodeSelect', val => localStorage.setItem('globalGroupNodeSelect', val));
                 this.$watch('externalController', val => localStorage.setItem('externalController', val));
                 this.$watch('externalUiDownloadUrl', val => localStorage.setItem('externalUiDownloadUrl', val));
                 this.$watch('customUA', val => localStorage.setItem('userAgent', val));
@@ -381,6 +384,7 @@ export const formLogicFn = (t) => {
                     if (this.groupByCountry) params.append('group_by_country', 'true');
                     if (!this.includeAutoSelect) params.append('include_auto_select', 'false');
                     if (this.enableClashUI) params.append('enable_clash_ui', 'true');
+                    if (this.globalGroupNodeSelect) params.append('global_group_node_select', 'true');
                     if (this.externalController) params.append('external_controller', this.externalController);
                     if (this.externalUiDownloadUrl) params.append('external_ui_download_url', this.externalUiDownloadUrl);
 
@@ -439,15 +443,14 @@ export const formLogicFn = (t) => {
                     // Shorten each link type
                     for (const [type, url] of Object.entries(this.generatedLinks)) {
                         try {
-                            let apiUrl = `${origin}/shorten-v2?url=${encodeURIComponent(url)}`;
+                            const body = { url };
+                            if (shortCode) body.shortCode = shortCode;
 
-                            // For the first request, either use custom code or let backend generate
-                            // For subsequent requests, use the code from first request
-                            if (shortCode) {
-                                apiUrl += `&shortCode=${encodeURIComponent(shortCode)}`;
-                            }
-
-                            const response = await fetch(apiUrl);
+                            const response = await fetch(`${origin}/shorten-v2`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(body)
+                            });
                             if (!response.ok) {
                                 throw new Error(`Failed to shorten ${type} link`);
                             }
@@ -623,6 +626,7 @@ export const formLogicFn = (t) => {
                 this.groupByCountry = params.get('group_by_country') === 'true';
                 this.includeAutoSelect = params.get('include_auto_select') !== 'false';
                 this.enableClashUI = params.get('enable_clash_ui') === 'true';
+                this.globalGroupNodeSelect = params.get('global_group_node_select') === 'true';
 
                 const externalController = params.get('external_controller');
                 if (externalController) {
@@ -647,7 +651,7 @@ export const formLogicFn = (t) => {
 
                 // Expand advanced options if any advanced settings are present
                 if (selectedRules || customRules || this.groupByCountry || this.enableClashUI ||
-                    externalController || externalUiDownloadUrl || ua || configId) {
+                    this.globalGroupNodeSelect || externalController || externalUiDownloadUrl || ua || configId) {
                     this.showAdvanced = true;
                 }
             }
