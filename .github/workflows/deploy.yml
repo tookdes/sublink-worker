@@ -16,13 +16,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24.22.1'
       
       - name: Install dependencies
-        run: npm install
-      
-      - name: Install wrangler
-        run: npm install -g wrangler
+        run: npm ci
       
       - name: Check and Create KV Namespace
         env:
@@ -31,7 +28,7 @@ jobs:
         run: |
           KV_NAMESPACE="SUBLINK_KV"
           echo "Checking for KV namespace: $KV_NAMESPACE"
-          if ! LIST_OUTPUT=$(wrangler kv namespace list 2>&1); then
+          if ! LIST_OUTPUT=$(npx wrangler kv namespace list 2>&1); then
             echo "Error getting KV namespace list: $LIST_OUTPUT"
             exit 1
           fi
@@ -48,7 +45,7 @@ jobs:
           
           if [ -z "$KV_ID" ]; then
               echo "KV namespace $KV_NAMESPACE does not exist. Creating..."
-              CREATE_OUTPUT=$(wrangler kv namespace create "sublink-worker-$KV_NAMESPACE" 2>&1)
+              CREATE_OUTPUT=$(npx wrangler kv namespace create "sublink-worker-$KV_NAMESPACE" 2>&1)
               echo "Create KV namespace output: $CREATE_OUTPUT"
               KV_ID=$(echo "$CREATE_OUTPUT" | grep -o '[0-9a-f]\{32\}')
               
